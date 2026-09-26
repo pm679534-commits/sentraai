@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  INTERNAL_ADMIN
+}
+
+enum OrgStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+}
+
+enum Plan {
+  STARTER
+  BUSINESS
+  ENTERPRISE
+}
+
+enum Action {
+  MASK
+  BLOCK
+  ALERT
+}
+
+enum IncidentStatus {
+  OPEN
+  REVIEWED
+  RESOLVED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+model Organization {
+  id        String       @id @default(cuid())
+  name      String
+  slug      String       @unique
+  industry  String
+  teamSize  String
+  status    OrgStatus    @default(TRIAL)
+  plan      Plan         @default(STARTER)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  users     User[]
+  employees Employee[]
+  incidents Incident[]
+  policies  PolicyRule[]
+  apiKeys   ApiKey[]
+  auditLogs AuditLog[]
+  scans     ScanEvent[]
+}
+
+model User {
+  id             String        @id @default(cuid())
+  email          String        @unique
+  name           String
+  passwordHash   String
+  role           UserRole      @default(OWNER)
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  auditLogs      AuditLog[]
+}
+
+model Employee {
+  id             String       @id @default(cuid())
+  email          String
+  name           String
+  department     String
+  riskScore      Int          @default(0)
+  requestCount   Int          @default(0)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incidents      Incident[]
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, email])
+  @@index([organizationId, department])
+}
+
+model Incident {
+  id             String         @id @default(cuid())
+  organizationId String
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  employeeId     String?
+  employee       Employee?      @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  tool           String
+  category       String
+  matchCount     Int            @default(1)
+  action         Action
+  severity       Severity
+  status         IncidentStatus @default(OPEN)
+  source         String         @default("gateway")
+  occurredAt     DateTime       @default(now())
+  reviewedAt     DateTime?
+
+  // Raw prompts and detected values are deliberately never stored.
+  @@index([organizationId, occurredAt])
+  @@index([organizationId, category, action])
+}
+
+model PolicyRule {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category       String
+  enabled        Boolean      @default(true)
+  action         Action       @default(MASK)
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, category])
+}
+
+model ApiKey {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  prefix         String
+  hash           String       @unique
+  createdAt      DateTime     @default(now())
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+
+  @@index([organizationId, revokedAt])
+}
+
+model AuditLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actorId        String?
+  actor          User?         @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action         String
+  targetType     String
+  targetId       String?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+
+  @@index([organizationId, createdAt])
+}
+
+model RateBucket {
+  key       String   @id
+  count     Int      @default(0)
+  expiresAt DateTime
+
+  @@index([expiresAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model ScanEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  tool           String
+  findingCount   Int          @default(0)
+  blocked        Boolean      @default(false)
+  masked         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+}

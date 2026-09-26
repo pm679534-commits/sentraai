@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+:root {
+  color-scheme: dark;
+}
+html {
+  scroll-behavior: smooth;
+}
+body {
+  background: #091722;
+  color: #e8f3f2;
+}
+* {
+  box-sizing: border-box;
+}
+::selection {
+  background: #41d5b0;
+  color: #091722;
+}
+.noise {
+  background-image: radial-gradient(
+    rgba(160, 210, 205, 0.06) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+.glass {
+  background: rgba(16, 35, 48, 0.82);
+  backdrop-filter: blur(20px);
+  border: 1px solid #25404c;
+}
+.grid-line {
+  background-image:
+    linear-gradient(rgba(75, 125, 133, 0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(75, 125, 133, 0.09) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+.focus-ring:focus-visible {
+  outline: 2px solid #41d5b0;
+  outline-offset: 3px;
+}
+input,
+select,
+textarea {
+  color-scheme: dark;
+}
+.table-scroll {
+  scrollbar-color: #25404c transparent;
+}
