@@ -69,9 +69,9 @@ export async function POST(request: NextRequest) {
           masked: matches.some((m) => active.get(m.category) === "MASK"),
         },
       });
-      for (const [category, matchCount] of counts)
-        await tx.incident.create({
-          data: {
+      if (counts.size)
+        await tx.incident.createMany({
+          data: Array.from(counts, ([category, matchCount]) => ({
             organizationId: key.organizationId,
             employeeId: employee?.id,
             tool: data.tool,
@@ -79,9 +79,11 @@ export async function POST(request: NextRequest) {
             matchCount,
             action: active.get(category)!,
             severity:
-              category === "SECRET" || category === "CARD" ? "HIGH" : "MEDIUM",
+              category === "SECRET" || category === "CARD"
+                ? ("HIGH" as const)
+                : ("MEDIUM" as const),
             source: "gateway",
-          },
+          })),
         });
       if (employee)
         await tx.employee.update({

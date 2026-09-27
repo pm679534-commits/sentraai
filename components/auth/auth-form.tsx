@@ -44,7 +44,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         });
         if (result?.error)
           throw new Error("Invalid email or password, or account unavailable.");
-        router.push("/dashboard");
+        router.replace("/auth/continue");
         router.refresh();
       } else if (mode === "signup") {
         const result = await fetch("/api/auth/signup", {

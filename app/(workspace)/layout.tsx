@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { getSession, isInternalAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { WorkspaceShell } from "@/components/workspace/shell";
 export default async function Layout({
@@ -9,7 +9,7 @@ export default async function Layout({
 }) {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
-  if (session.user.role === "INTERNAL_ADMIN") redirect("/admin");
+  if (isInternalAdmin(session.user)) redirect("/admin");
   if (!session.user.organizationId) redirect("/onboarding");
   const org = await prisma.organization.findUnique({
     where: { id: session.user.organizationId },

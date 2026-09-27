@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeading } from "@/components/workspace/page-heading";
 import { TrendChart } from "@/components/workspace/trend-chart";
 export const metadata = { title: "Overview" };
+type DailyCount = { day: string; total: number };
 export default async function Page() {
   const session = await getSession();
   const id = session!.user.organizationId!;
@@ -23,72 +24,82 @@ export default async function Page() {
   start.setHours(0, 0, 0, 0);
   const thirty = new Date(start.getTime() - 29 * 86400_000);
   const [
-    todayScans,
-    todayBlocked,
-    todayMasked,
+    todayGroups,
     incidents,
-    employees,
+    employeeCount,
+    departmentRisk,
     scans30,
     incidents30,
   ] = await Promise.all([
-    prisma.scanEvent.count({
+    prisma.scanEvent.groupBy({
+      by: ["blocked", "masked"],
       where: { organizationId: id, createdAt: { gte: start } },
-    }),
-    prisma.scanEvent.count({
-      where: { organizationId: id, createdAt: { gte: start }, blocked: true },
-    }),
-    prisma.scanEvent.count({
-      where: { organizationId: id, createdAt: { gte: start }, masked: true },
+      _count: { _all: true },
     }),
     prisma.incident.findMany({
       where: { organizationId: id },
-      include: { employee: { select: { name: true, department: true } } },
+      select: {
+        id: true,
+        tool: true,
+        category: true,
+        action: true,
+        occurredAt: true,
+        employee: { select: { name: true } },
+      },
       orderBy: { occurredAt: "desc" },
       take: 5,
     }),
-    prisma.employee.findMany({
+    prisma.employee.count({ where: { organizationId: id } }),
+    prisma.employee.groupBy({
+      by: ["department"],
       where: { organizationId: id },
-      select: { department: true, riskScore: true },
+      _avg: { riskScore: true },
     }),
-    prisma.scanEvent.findMany({
-      where: { organizationId: id, createdAt: { gte: thirty } },
-      select: { createdAt: true },
-    }),
-    prisma.incident.findMany({
-      where: { organizationId: id, occurredAt: { gte: thirty } },
-      select: { occurredAt: true },
-    }),
+    prisma.$queryRaw<DailyCount[]>`
+      SELECT "createdAt"::date::text AS day,
+             COUNT(*)::integer AS total
+      FROM "ScanEvent"
+      WHERE "organizationId" = ${id} AND "createdAt" >= ${thirty}
+      GROUP BY 1
+    `,
+    prisma.$queryRaw<DailyCount[]>`
+      SELECT "occurredAt"::date::text AS day,
+             COUNT(*)::integer AS total
+      FROM "Incident"
+      WHERE "organizationId" = ${id} AND "occurredAt" >= ${thirty}
+      GROUP BY 1
+    `,
   ]);
+  const todayScans = todayGroups.reduce((total, group) => total + group._count._all, 0);
+  const todayBlocked = todayGroups.reduce(
+    (total, group) => total + (group.blocked ? group._count._all : 0),
+    0,
+  );
+  const todayMasked = todayGroups.reduce(
+    (total, group) => total + (group.masked ? group._count._all : 0),
+    0,
+  );
+  const scanCounts = new Map(scans30.map((row) => [row.day, row.total]));
+  const incidentCounts = new Map(incidents30.map((row) => [row.day, row.total]));
+  const dateFormatter = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+  });
   const dates = Array.from({ length: 30 }, (_, i) => {
     const d = new Date(thirty.getTime() + i * 86400_000);
     const key = d.toISOString().slice(0, 10);
     return {
       key,
-      date: new Intl.DateTimeFormat("en-US", {
-        month: "short",
-        day: "numeric",
-      }).format(d),
-      scans: scans30.filter(
-        (s) => s.createdAt.toISOString().slice(0, 10) === key,
-      ).length,
-      incidents: incidents30.filter(
-        (s) => s.occurredAt.toISOString().slice(0, 10) === key,
-      ).length,
+      date: dateFormatter.format(d),
+      scans: scanCounts.get(key) ?? 0,
+      incidents: incidentCounts.get(key) ?? 0,
     };
   });
-  const dept = Object.entries(
-    employees.reduce<Record<string, { sum: number; count: number }>>(
-      (acc, e) => {
-        const row = acc[e.department] ?? { sum: 0, count: 0 };
-        row.sum += e.riskScore;
-        row.count++;
-        acc[e.department] = row;
-        return acc;
-      },
-      {},
-    ),
-  )
-    .map(([name, x]) => ({ name, score: Math.round(x.sum / x.count) }))
+  const dept = departmentRisk
+    .map((row) => ({
+      name: row.department,
+      score: Math.round(row._avg.riskScore ?? 0),
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
   return (
@@ -131,7 +142,7 @@ export default async function Page() {
           },
           {
             label: "Active employees",
-            value: employees.length,
+            value: employeeCount,
             icon: ShieldCheck,
             note: "Monitored team members",
             tone: "text-[#8dc8ff]",

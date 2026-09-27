@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError, z } from "zod";
-import { getSession } from "@/lib/auth";
+import { getSession, isInternalAdmin } from "@/lib/auth";
 import { isSameOrigin } from "@/lib/security";
 import { prisma } from "@/lib/db";
 
@@ -101,7 +101,7 @@ export async function requireManager() {
 }
 export async function requireInternalAdmin() {
   const session = await getSession();
-  if (!session?.user?.id || session.user.role !== "INTERNAL_ADMIN")
+  if (!session?.user?.id || !isInternalAdmin(session.user))
     throw new ApiError(403, "FORBIDDEN", "Internal admin access required");
   return session.user;
 }

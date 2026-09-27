@@ -1,5 +1,3 @@
-"use client";
-import { motion } from "framer-motion";
 import {
   ArrowRight,
   Check,
@@ -10,12 +8,7 @@ import {
 import { t } from "@/lib/i18n";
 export function HeroVisual() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7 }}
-      className="relative mx-auto w-full max-w-[560px]"
-    >
+    <div className="hero-visual-enter relative mx-auto w-full max-w-[560px]">
       <div className="absolute -inset-10 rounded-full bg-accent/10 blur-3xl" />
       <div className="relative overflow-hidden rounded-2xl border border-line bg-[#102330] shadow-glow">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
@@ -92,6 +85,6 @@ export function HeroVisual() {
           </span>
         </div>
       </div>
-    </motion.div>
+    </div>
   );
 }

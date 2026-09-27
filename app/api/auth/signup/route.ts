@@ -21,6 +21,8 @@ export async function POST(request: NextRequest) {
     if (!(await rateLimit(`signup:${clientIp(request)}`, 5, 3600)))
       throw new ApiError(429, "RATE_LIMITED", "Try again later");
     const data = await parseBody(request, schema);
+    if (process.env.ADMIN_EMAIL?.trim().toLowerCase() === data.email)
+      throw new ApiError(409, "ACCOUNT_EXISTS", "An account already uses this email");
     if (
       await prisma.user.findUnique({
         where: { email: data.email },

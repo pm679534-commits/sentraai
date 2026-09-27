@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/auth";
+import { getSession, isInternalAdmin } from "@/lib/auth";
 import { AdminShell } from "@/components/admin/admin-shell";
 export const dynamic = "force-dynamic";
 export default async function Layout({
@@ -9,7 +9,7 @@ export default async function Layout({
 }) {
   const session = await getSession();
   if (!session?.user?.id) redirect("/login");
-  if (session.user.role !== "INTERNAL_ADMIN") redirect("/dashboard");
+  if (!isInternalAdmin(session.user)) redirect("/dashboard");
   return (
     <AdminShell userName={session.user.name ?? "Administrator"}>
       {children}

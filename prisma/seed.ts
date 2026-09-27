@@ -8,6 +8,7 @@ import { hash } from "bcryptjs";
 const db = new PrismaClient();
 const ownerPassword = process.env.SEED_OWNER_PASSWORD;
 const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase() || "admin@sentraai.example";
 if (
   !ownerPassword ||
   !adminPassword ||
@@ -43,10 +44,14 @@ async function main() {
     },
   });
   await db.user.upsert({
-    where: { email: "admin@sentraai.example" },
-    update: { passwordHash: await hash(adminPassword!, 12) },
+    where: { email: adminEmail },
+    update: {
+      passwordHash: await hash(adminPassword!, 12),
+      role: "INTERNAL_ADMIN",
+      organizationId: null,
+    },
     create: {
-      email: "admin@sentraai.example",
+      email: adminEmail,
       name: "SentraAI Operations",
       passwordHash: await hash(adminPassword!, 12),
       role: "INTERNAL_ADMIN",
@@ -138,7 +143,7 @@ async function main() {
     await db.scanEvent.createMany({ data: scans });
   }
   console.log(
-    `Seeded ${org.name}; demo accounts: owner@caspianmeridian.example and admin@sentraai.example`,
+    `Seeded ${org.name}; demo accounts: owner@caspianmeridian.example and ${adminEmail}`,
   );
 }
 main().finally(() => db.$disconnect());

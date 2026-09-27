@@ -48,3 +48,21 @@ textarea {
 .table-scroll {
   scrollbar-color: #25404c transparent;
 }
+@keyframes hero-visual-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.hero-visual-enter {
+  animation: hero-visual-enter 0.7s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-visual-enter {
+    animation: none;
+  }
+}

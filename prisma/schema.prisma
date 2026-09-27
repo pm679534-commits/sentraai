@@ -92,6 +92,7 @@ model Employee {
 
   @@unique([organizationId, email])
   @@index([organizationId, department])
+  @@index([organizationId, riskScore])
 }
 
 model Incident {
@@ -113,6 +114,10 @@ model Incident {
   // Raw prompts and detected values are deliberately never stored.
   @@index([organizationId, occurredAt])
   @@index([organizationId, category, action])
+  @@index([organizationId, action, occurredAt])
+  @@index([organizationId, status, occurredAt])
+  @@index([occurredAt])
+  @@index([action, occurredAt])
 }
 
 model PolicyRule {

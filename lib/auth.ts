@@ -3,6 +3,13 @@ import { NextAuthOptions, getServerSession } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "@/lib/db";
 import { rateLimit } from "@/lib/security";
+import type { UserRole } from "@prisma/client";
+
+export function isInternalAdmin(user: { role: UserRole; email?: string | null }) {
+  if (user.role !== "INTERNAL_ADMIN") return false;
+  const configuredEmail = process.env.ADMIN_EMAIL?.trim();
+  return !configuredEmail || user.email?.toLowerCase() === configuredEmail.toLowerCase();
+}
 
 export interface EnterpriseSSOProvider {
   id: string;
@@ -63,10 +70,11 @@ export const authOptions: NextAuthOptions = {
       const current = token.sub
         ? await prisma.user.findUnique({
             where: { id: token.sub },
-            select: { role: true, organizationId: true },
+            select: { email: true, role: true, organizationId: true },
           })
         : null;
       session.user.id = current ? (token.sub ?? "") : "";
+      if (current) session.user.email = current.email;
       session.user.role = current?.role ?? token.role;
       session.user.organizationId = current?.organizationId ?? null;
       return session;
