@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { PageHeading } from "@/components/workspace/page-heading";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { IncidentStatusBadge } from "@/components/workspace/incident-status-badge";
 import { formatDate, number } from "@/lib/utils";
 export const metadata = { title: "Global incidents" };
 export const dynamic = "force-dynamic";
@@ -59,6 +60,7 @@ export default async function Page() {
                     "AI tool",
                     "Data type",
                     "Action",
+                    "Status",
                     "Severity",
                   ].map((h) => (
                     <th key={h} className="px-5 py-3 font-medium">
@@ -95,6 +97,9 @@ export default async function Page() {
                       >
                         {r.action.toLowerCase()}
                       </Badge>
+                    </td>
+                    <td className="px-5 py-4 text-muted">
+                      <IncidentStatusBadge status={r.status} />
                     </td>
                     <td className="px-5 py-4 text-muted">
                       {r.severity.toLowerCase()}

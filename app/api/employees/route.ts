@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { planFeatures } from "@/lib/plans";
 import {
   ApiError,
   jsonError,
@@ -36,10 +37,14 @@ export async function GET(request: NextRequest) {
             }
           : {}),
       },
-      orderBy: { riskScore: "desc" },
+      orderBy: planFeatures[user.plan].departmentRiskAnalytics
+        ? { riskScore: "desc" } : { name: "asc" },
       take: 200,
     });
-    return NextResponse.json({ data });
+    return NextResponse.json({
+      data: planFeatures[user.plan].departmentRiskAnalytics
+        ? data : data.map(({ riskScore: _riskScore, ...employee }) => employee),
+    });
   } catch (error) {
     return jsonError(error);
   }
@@ -61,7 +66,9 @@ export async function POST(request: NextRequest) {
         targetId: employee.id,
       },
     });
-    return NextResponse.json({ data: employee }, { status: 201 });
+    const visible = planFeatures[user.plan].departmentRiskAnalytics
+      ? employee : (({ riskScore: _riskScore, ...record }) => record)(employee);
+    return NextResponse.json({ data: visible }, { status: 201 });
   } catch (error) {
     return jsonError(error);
   }

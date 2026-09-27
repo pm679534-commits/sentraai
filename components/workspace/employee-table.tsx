@@ -1,5 +1,6 @@
 "use client";
 import { useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { Plus, Search, Users, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,12 +20,16 @@ type Employee = {
 export function EmployeeTable({
   initial,
   canManage,
+  showRisk,
 }: {
   initial: Employee[];
   canManage: boolean;
+  showRisk: boolean;
 }) {
   const [rows, setRows] = useState(initial);
   const [q, setQ] = useState("");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [riskSort, setRiskSort] = useState("high");
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -34,12 +39,28 @@ export function EmployeeTable({
   const filtered = useMemo(
     () =>
       rows.filter((r) =>
-        `${r.name} ${r.email} ${r.department}`
-          .toLowerCase()
-          .includes(q.toLowerCase()),
-      ),
-    [rows, q],
+        `${r.name} ${r.email} ${r.department}`.toLowerCase().includes(q.toLowerCase()) &&
+        (!showRisk || riskFilter === "all" ||
+          (riskFilter === "low" && r.riskScore < 34) ||
+          (riskFilter === "medium" && r.riskScore >= 34 && r.riskScore <= 66) ||
+          (riskFilter === "high" && r.riskScore > 66)),
+      ).sort((a, b) => showRisk
+        ? riskSort === "low" ? a.riskScore - b.riskScore : b.riskScore - a.riskScore
+        : a.name.localeCompare(b.name)),
+    [rows, q, showRisk, riskFilter, riskSort],
   );
+  const departments = useMemo(() => {
+    const scores = new Map<string, { total: number; count: number }>();
+    for (const row of rows) {
+      const item = scores.get(row.department) ?? { total: 0, count: 0 };
+      item.total += row.riskScore;
+      item.count += 1;
+      scores.set(row.department, item);
+    }
+    return [...scores].map(([name, value]) => ({
+      name, score: Math.round(value.total / value.count),
+    })).sort((a, b) => b.score - a.score);
+  }, [rows]);
   async function add(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -53,7 +74,7 @@ export function EmployeeTable({
       const body = await r.json();
       if (!r.ok)
         throw new Error(body.error?.message ?? "Could not add employee");
-      setRows([body.data, ...rows]);
+      setRows([{ ...body.data, riskScore: body.data.riskScore ?? 0 }, ...rows]);
       setOpen(false);
       setName("");
       setEmail("");
@@ -86,6 +107,18 @@ export function EmployeeTable({
           </Card>
         ))}
       </div>
+      {showRisk && departments.length > 0 && (
+        <Card className="mb-5 p-5">
+          <h2 className="font-semibold text-white">Department risk</h2>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {departments.map((item) => (
+              <span key={item.name} className="rounded-lg border border-line bg-ink px-3 py-2 text-sm text-muted">
+                {item.name} <span className={item.score > 66 ? "text-danger" : item.score >= 34 ? "text-amber" : "text-accent"}>{item.score}/100</span>
+              </span>
+            ))}
+          </div>
+        </Card>
+      )}
       <Card className="overflow-hidden">
         <div className="flex flex-col justify-between gap-4 border-b border-line p-5 sm:flex-row sm:items-center">
           <div className="relative w-full sm:max-w-xs">
@@ -97,6 +130,17 @@ export function EmployeeTable({
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
+          {showRisk && <div className="flex gap-2">
+            <select aria-label="Filter by risk" value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)}
+              className="focus-ring h-10 rounded-lg border border-line bg-ink px-3 text-sm text-muted">
+              <option value="all">All risk levels</option><option value="low">Low risk</option>
+              <option value="medium">Medium risk</option><option value="high">High risk</option>
+            </select>
+            <select aria-label="Sort by risk" value={riskSort} onChange={(event) => setRiskSort(event.target.value)}
+              className="focus-ring h-10 rounded-lg border border-line bg-ink px-3 text-sm text-muted">
+              <option value="high">Highest risk</option><option value="low">Lowest risk</option>
+            </select>
+          </div>}
           {canManage && (
             <Button size="sm" onClick={() => setOpen(true)}>
               <Plus size={16} /> Add employee
@@ -112,8 +156,7 @@ export function EmployeeTable({
                     "Employee",
                     "Department",
                     "AI requests",
-                    "Risk level",
-                    "Risk score",
+                    ...(showRisk ? ["Risk level", "Risk score"] : []),
                   ].map((h) => (
                     <th key={h} className="px-5 py-3 font-medium">
                       {h}
@@ -134,7 +177,7 @@ export function EmployeeTable({
                             .join("")}
                         </div>
                         <div>
-                          <p className="font-semibold text-white">{r.name}</p>
+                          <Link href={`/employees/${r.id}`} className="font-semibold text-white hover:text-accent">{r.name}</Link>
                           <p className="mt-0.5 text-xs text-muted">{r.email}</p>
                         </div>
                       </div>
@@ -143,28 +186,28 @@ export function EmployeeTable({
                     <td className="px-5 py-4 text-white">
                       {number(r.requestCount)}
                     </td>
-                    <td className="px-5 py-4">
+                    {showRisk && <td className="px-5 py-4">
                       <Badge
                         tone={
-                          r.riskScore >= 50
+                          r.riskScore > 66
                             ? "danger"
-                            : r.riskScore >= 30
+                            : r.riskScore >= 34
                               ? "warning"
                               : "good"
                         }
                       >
-                        {r.riskScore >= 50
+                        {r.riskScore > 66
                           ? "High"
-                          : r.riskScore >= 30
+                          : r.riskScore >= 34
                             ? "Medium"
                             : "Low"}
                       </Badge>
-                    </td>
-                    <td className="px-5 py-4">
+                    </td>}
+                    {showRisk && <td className="px-5 py-4">
                       <div className="flex items-center gap-3">
                         <div className="h-1.5 w-20 rounded-full bg-surface">
                           <div
-                            className={`h-1.5 rounded-full ${r.riskScore >= 50 ? "bg-danger" : r.riskScore >= 30 ? "bg-amber" : "bg-accent"}`}
+                            className={`h-1.5 rounded-full ${r.riskScore > 66 ? "bg-danger" : r.riskScore >= 34 ? "bg-amber" : "bg-accent"}`}
                             style={{ width: `${Math.min(100, r.riskScore)}%` }}
                           />
                         </div>
@@ -172,7 +215,7 @@ export function EmployeeTable({
                           {r.riskScore}
                         </span>
                       </div>
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>

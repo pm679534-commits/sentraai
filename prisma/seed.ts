@@ -5,6 +5,8 @@ import {
   type Employee,
 } from "@prisma/client";
 import { hash } from "bcryptjs";
+import { calculateRiskScore } from "../lib/risk-scoring";
+import { historyStart } from "../lib/plans";
 const db = new PrismaClient();
 const ownerPassword = process.env.SEED_OWNER_PASSWORD;
 const adminPassword = process.env.SEED_ADMIN_PASSWORD;
@@ -124,7 +126,7 @@ async function main() {
       category: categories[(i * 3) % categories.length],
       action: actions[i % actions.length],
       severity: severities[(i * 7) % severities.length],
-      status: i % 5 === 0 ? ("REVIEWED" as const) : ("OPEN" as const),
+      status: i % 5 === 0 ? ("ACKNOWLEDGED" as const) : ("NEW" as const),
       matchCount: i % 9 === 0 ? 2 : 1,
       occurredAt: new Date(Date.now() - (i * 8 + (i % 4)) * 60 * 60_000),
       source: "gateway",
@@ -142,6 +144,22 @@ async function main() {
     }));
     await db.scanEvent.createMany({ data: scans });
   }
+  const riskIncidents = await db.incident.findMany({
+    where: { organizationId: org.id, occurredAt: { gte: historyStart(org.plan) } },
+    select: { id: true, employeeId: true, occurredAt: true, action: true, severity: true, matchCount: true, status: true },
+  });
+  const byEmployee = new Map<string, typeof riskIncidents>();
+  for (const incident of riskIncidents) {
+    if (!incident.employeeId) continue;
+    const list = byEmployee.get(incident.employeeId) ?? [];
+    list.push(incident);
+    byEmployee.set(incident.employeeId, list);
+  }
+  for (const employee of employees)
+    await db.employee.update({
+      where: { id: employee.id },
+      data: { riskScore: calculateRiskScore(byEmployee.get(employee.id) ?? []) },
+    });
   console.log(
     `Seeded ${org.name}; demo accounts: owner@caspianmeridian.example and ${adminEmail}`,
   );

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { Action, IncidentStatus, Severity } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { historyStart } from "@/lib/plans";
+import { recomputeEmployeeRisk } from "@/lib/risk-scoring";
 import {
   ApiError,
   jsonError,
@@ -30,6 +32,7 @@ export async function GET(request: NextRequest) {
     const status = p.get("status");
     const where = {
       organizationId: user.organizationId!,
+      occurredAt: { gte: historyStart(user.plan) },
       ...(action && Object.values(Action).includes(action as Action)
         ? { action: action as Action }
         : {}),
@@ -58,6 +61,7 @@ export async function GET(request: NextRequest) {
           employee: {
             select: { id: true, name: true, email: true, department: true },
           },
+          assignedToUser: { select: { id: true, name: true } },
         },
         orderBy: { occurredAt: "desc" },
         skip: (page - 1) * 25,
@@ -90,8 +94,13 @@ export async function POST(request: NextRequest) {
         "INVALID_EMPLOYEE",
         "Employee is outside this organization",
       );
-    const incident = await prisma.incident.create({
-      data: { ...data, organizationId: user.organizationId!, source: "manual" },
+    const incident = await prisma.$transaction(async (tx) => {
+      const created = await tx.incident.create({
+        data: { ...data, organizationId: user.organizationId!, source: "manual" },
+      });
+      if (data.employeeId)
+        await recomputeEmployeeRisk(tx, user.organizationId!, data.employeeId, user.plan, created.id);
+      return created;
     });
     return NextResponse.json({ data: incident }, { status: 201 });
   } catch (error) {

@@ -34,9 +34,11 @@ enum Action {
 }
 
 enum IncidentStatus {
-  OPEN
-  REVIEWED
+  NEW
+  ACKNOWLEDGED
+  INVESTIGATING
   RESOLVED
+  FALSE_POSITIVE
 }
 
 enum Severity {
@@ -76,6 +78,7 @@ model User {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   auditLogs      AuditLog[]
+  assignedIncidents Incident[] @relation("IncidentAssignee")
 }
 
 model Employee {
@@ -101,15 +104,19 @@ model Incident {
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   employeeId     String?
   employee       Employee?      @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  assignedToUserId String?
+  assignedToUser   User?         @relation("IncidentAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
   tool           String
   category       String
   matchCount     Int            @default(1)
   action         Action
   severity       Severity
-  status         IncidentStatus @default(OPEN)
+  status         IncidentStatus @default(NEW)
   source         String         @default("gateway")
   occurredAt     DateTime       @default(now())
   reviewedAt     DateTime?
+  resolvedAt     DateTime?
+  resolutionNote String?
 
   // Raw prompts and detected values are deliberately never stored.
   @@index([organizationId, occurredAt])
@@ -118,6 +125,7 @@ model Incident {
   @@index([organizationId, status, occurredAt])
   @@index([occurredAt])
   @@index([action, occurredAt])
+  @@index([organizationId, employeeId, occurredAt])
 }
 
 model PolicyRule {
@@ -159,6 +167,7 @@ model AuditLog {
   createdAt      DateTime      @default(now())
 
   @@index([organizationId, createdAt])
+  @@index([organizationId, targetType, targetId, createdAt])
 }
 
 model RateBucket {

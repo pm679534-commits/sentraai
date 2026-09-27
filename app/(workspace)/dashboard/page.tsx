@@ -15,11 +15,18 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PageHeading } from "@/components/workspace/page-heading";
 import { TrendChart } from "@/components/workspace/trend-chart";
+import { historyStart, planFeatures } from "@/lib/plans";
+import { openIncidentStatuses } from "@/lib/incident-triage";
+import { IncidentStatusBadge } from "@/components/workspace/incident-status-badge";
 export const metadata = { title: "Overview" };
 type DailyCount = { day: string; total: number };
 export default async function Page() {
   const session = await getSession();
   const id = session!.user.organizationId!;
+  const organization = await prisma.organization.findUniqueOrThrow({
+    where: { id }, select: { plan: true },
+  });
+  const riskEnabled = planFeatures[organization.plan].departmentRiskAnalytics;
   const start = new Date();
   start.setHours(0, 0, 0, 0);
   const thirty = new Date(start.getTime() - 29 * 86400_000);
@@ -30,6 +37,9 @@ export default async function Page() {
     departmentRisk,
     scans30,
     incidents30,
+    queueGroups,
+    topRisk,
+    organizationRisk,
   ] = await Promise.all([
     prisma.scanEvent.groupBy({
       by: ["blocked", "masked"],
@@ -37,7 +47,7 @@ export default async function Page() {
       _count: { _all: true },
     }),
     prisma.incident.findMany({
-      where: { organizationId: id },
+      where: { organizationId: id, occurredAt: { gte: historyStart(organization.plan) } },
       select: {
         id: true,
         tool: true,
@@ -50,11 +60,11 @@ export default async function Page() {
       take: 5,
     }),
     prisma.employee.count({ where: { organizationId: id } }),
-    prisma.employee.groupBy({
+    riskEnabled ? prisma.employee.groupBy({
       by: ["department"],
       where: { organizationId: id },
       _avg: { riskScore: true },
-    }),
+    }) : Promise.resolve([]),
     prisma.$queryRaw<DailyCount[]>`
       SELECT "createdAt"::date::text AS day,
              COUNT(*)::integer AS total
@@ -69,7 +79,22 @@ export default async function Page() {
       WHERE "organizationId" = ${id} AND "occurredAt" >= ${thirty}
       GROUP BY 1
     `,
+    prisma.incident.groupBy({
+      by: ["status"],
+      where: { organizationId: id, occurredAt: { gte: historyStart(organization.plan) } },
+      _count: { _all: true },
+    }),
+    riskEnabled ? prisma.employee.findMany({
+      where: { organizationId: id },
+      select: { id: true, name: true, department: true, riskScore: true },
+      orderBy: { riskScore: "desc" }, take: 5,
+    }) : Promise.resolve([]),
+    riskEnabled ? prisma.employee.aggregate({
+      where: { organizationId: id }, _avg: { riskScore: true },
+    }) : Promise.resolve(null),
   ]);
+  const queue = new Map(queueGroups.map((row) => [row.status, row._count._all]));
+  const openCount = openIncidentStatuses.reduce((count, status) => count + (queue.get(status) ?? 0), 0);
   const todayScans = todayGroups.reduce((total, group) => total + group._count._all, 0);
   const todayBlocked = todayGroups.reduce(
     (total, group) => total + (group.blocked ? group._count._all : 0),
@@ -163,11 +188,11 @@ export default async function Page() {
           );
         })}
       </div>
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.7fr_1fr]">
+      <div className={`mt-5 grid gap-5 ${riskEnabled ? "xl:grid-cols-[1.7fr_1fr]" : ""}`}>
         <Card className="p-6">
           <TrendChart data={dates} />
         </Card>
-        <Card className="p-6">
+        {riskEnabled && <Card className="p-6">
           <div className="mb-7 flex items-center justify-between">
             <div>
               <h3 className="font-semibold text-white">Risk by department</h3>
@@ -185,9 +210,9 @@ export default async function Page() {
                     <span className="text-[#d0dddd]">{d.name}</span>
                     <span
                       className={
-                        d.score >= 50
-                          ? "font-semibold text-danger"
-                          : d.score >= 30
+                          d.score > 66
+                            ? "font-semibold text-danger"
+                            : d.score >= 34
                             ? "font-semibold text-amber"
                             : "font-semibold text-accent"
                       }
@@ -197,7 +222,7 @@ export default async function Page() {
                   </div>
                   <div className="h-2 rounded-full bg-surface">
                     <div
-                      className={`h-2 rounded-full ${d.score >= 50 ? "bg-danger" : d.score >= 30 ? "bg-amber" : "bg-accent"}`}
+                      className={`h-2 rounded-full ${d.score > 66 ? "bg-danger" : d.score >= 34 ? "bg-amber" : "bg-accent"}`}
                       style={{ width: `${d.score}%` }}
                     />
                   </div>
@@ -215,7 +240,36 @@ export default async function Page() {
           >
             View all employees <ArrowRight size={14} />
           </Link>
+        </Card>}
+      </div>
+      <div className={`mt-5 grid gap-5 ${riskEnabled ? "xl:grid-cols-2" : ""}`}>
+        <Card className="p-6">
+          <div className="flex items-center justify-between">
+            <div><h3 className="font-semibold text-white">SOC triage queue</h3>
+              <p className="mt-1 text-xs text-muted">Incidents in the visible history window</p></div>
+            <Link href="/incidents" className="text-xs font-semibold text-accent hover:underline">View queue</Link>
+          </div>
+          <p className="mt-5 text-3xl font-bold text-white">{number(openCount)} <span className="text-sm font-normal text-muted">open</span></p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            {(["NEW", "ACKNOWLEDGED", "INVESTIGATING", "RESOLVED", "FALSE_POSITIVE"] as const).map((status) => (
+              <span key={status} className="flex items-center gap-2 text-xs text-muted">
+                <IncidentStatusBadge status={status} /> {number(queue.get(status) ?? 0)}
+              </span>
+            ))}
+          </div>
         </Card>
+        {riskEnabled && <Card className="p-6">
+          <h3 className="font-semibold text-white">Highest-risk employees</h3>
+          <p className="mt-1 text-xs text-muted">Organization average: {Math.round(organizationRisk?._avg.riskScore ?? 0)}/100</p>
+          <div className="mt-4 divide-y divide-line">
+            {topRisk.map((employee) => <Link key={employee.id} href={`/employees/${employee.id}`}
+              className="flex items-center justify-between gap-3 py-2 text-sm hover:text-accent">
+              <span><span className="text-white">{employee.name}</span><span className="ml-2 text-xs text-muted">{employee.department}</span></span>
+              <span className={employee.riskScore > 66 ? "font-semibold text-danger" : employee.riskScore >= 34 ? "font-semibold text-amber" : "font-semibold text-accent"}>{employee.riskScore}/100</span>
+            </Link>)}
+            {!topRisk.length && <p className="py-3 text-sm text-muted">No employees yet.</p>}
+          </div>
+        </Card>}
       </div>
       <Card className="mt-5 overflow-hidden">
         <div className="flex items-center justify-between border-b border-line px-6 py-5">

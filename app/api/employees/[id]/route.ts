@@ -3,6 +3,7 @@ import { ids } from "@/lib/api";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
+import { planFeatures } from "@/lib/plans";
 import {
   ApiError,
   jsonError,
@@ -26,7 +27,10 @@ export async function GET(
       where: { id: params.id, organizationId: user.organizationId! },
     });
     if (!data) throw new ApiError(404, "NOT_FOUND", "Employee not found");
-    return NextResponse.json({ data });
+    return NextResponse.json({
+      data: planFeatures[user.plan].departmentRiskAnalytics
+        ? data : (({ riskScore: _riskScore, ...record }) => record)(data),
+    });
   } catch (error) {
     return jsonError(error);
   }
@@ -56,10 +60,12 @@ export async function PATCH(
         metadata: data,
       },
     });
-    return NextResponse.json({
-      data: await prisma.employee.findFirst({
+    const employee = await prisma.employee.findFirst({
         where: { id: params.id, organizationId: user.organizationId! },
-      }),
+      });
+    return NextResponse.json({
+      data: planFeatures[user.plan].departmentRiskAnalytics
+        ? employee : employee && (({ riskScore: _riskScore, ...record }) => record)(employee),
     });
   } catch (error) {
     return jsonError(error);

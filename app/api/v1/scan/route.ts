@@ -5,6 +5,7 @@ import { prisma } from "@/lib/db";
 import { ApiError, jsonError, parseBody } from "@/lib/api";
 import { clientIp, rateLimit, sha256 } from "@/lib/security";
 import { scanText, type Category } from "@/lib/detection-engine";
+import { recomputeEmployeeRisk } from "@/lib/risk-scoring";
 
 /** Future extension contract: POST JSON {text, tool, employeeEmail?} with Authorization: Bearer <org API key>. */
 const schema = z.object({
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest) {
       throw new ApiError(401, "INVALID_API_KEY", "A valid API key is required");
     const key = await prisma.apiKey.findUnique({
       where: { hash: sha256(auth.slice(7)) },
-      include: { organization: { select: { status: true } } },
+      include: { organization: { select: { status: true, plan: true } } },
     });
     if (!key || key.revokedAt || key.organization.status === "SUSPENDED")
       throw new ApiError(401, "INVALID_API_KEY", "A valid API key is required");
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
             organizationId: key.organizationId,
             email: data.employeeEmail.toLowerCase(),
           },
-          select: { id: true, riskScore: true },
+          select: { id: true },
         })
       : null;
     await prisma.$transaction(async (tx) => {
@@ -88,14 +89,15 @@ export async function POST(request: NextRequest) {
       if (employee)
         await tx.employee.update({
           where: { id: employee.id },
-          data: {
-            requestCount: { increment: 1 },
-            riskScore: Math.min(
-              100,
-              employee.riskScore + (counts.size ? 2 : 0),
-            ),
-          },
+          data: { requestCount: { increment: 1 } },
         });
+      if (employee && counts.size)
+        await recomputeEmployeeRisk(
+          tx,
+          key.organizationId,
+          employee.id,
+          key.organization.plan,
+        );
       await tx.apiKey.update({
         where: { id: key.id },
         data: { lastUsedAt: new Date() },

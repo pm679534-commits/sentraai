@@ -83,7 +83,7 @@ export async function requireUser() {
     throw new ApiError(401, "UNAUTHORIZED", "Sign in to continue");
   const org = await prisma.organization.findUnique({
     where: { id: session.user.organizationId },
-    select: { status: true },
+    select: { status: true, plan: true },
   });
   if (!org || org.status === "SUSPENDED")
     throw new ApiError(
@@ -91,7 +91,7 @@ export async function requireUser() {
       "TENANT_UNAVAILABLE",
       "Organization access is unavailable",
     );
-  return session.user;
+  return { ...session.user, plan: org.plan };
 }
 export async function requireManager() {
   const user = await requireUser();
